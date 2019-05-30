@@ -143,33 +143,33 @@ int main(int argc, const char *argv[])
 	int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0660);
 	FILE *f = fdopen(fd, "w");
 
-	fprintf(f, "xkb_keymap {\n");
+	//fprintf(f, "xkb_keymap {\n");
 
-	fprintf(
-		f,
-		"xkb_keycodes \"(unnamed)\" {\n"
-		"minimum = 8;\n"
-		"maximum = %d;\n",
-		char_count + 8
-	);
-	for (int i = 0; i < char_count; i++) {
-		fprintf(f, "<K%d> = %d;\n", i, i + 8);
-	}
-	fprintf(f, "};\n");
+	//fprintf(
+	//	f,
+	//	"xkb_keycodes \"(unnamed)\" {\n"
+	//	"minimum = 8;\n"
+	//	"maximum = %d;\n",
+	//	char_count + 8
+	//);
+	//for (int i = 0; i < char_count; i++) {
+	//	fprintf(f, "<K%d> = %d;\n", i, i + 8);
+	//}
+	//fprintf(f, "};\n");
 
-	fprintf(f, "xkb_types \"(unnamed)\" {};\n");
-	fprintf(f, "xkb_compatibility \"(unnamed)\" {};\n");
+	//fprintf(f, "xkb_types \"(unnamed)\" {};\n");
+	//fprintf(f, "xkb_compatibility \"(unnamed)\" {};\n");
 
-	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
-	fprintf(f, "name[group1]=\"English (US)\";\n");
-	for (int i = 0; i < char_count; i++) {
-		fprintf(f, "key <K%d> {[U%04x]};\n", i, key_to_char[i]);
-	}
-	fprintf(f, "};\n");
+	//fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
+	//fprintf(f, "name[group1]=\"English (US)\";\n");
+	//for (int i = 0; i < char_count; i++) {
+	//	fprintf(f, "key <K%d> {[U%04x]};\n", i, key_to_char[i]);
+	//}
+	//fprintf(f, "};\n");
 
-	fprintf(f, "};\n");
-	fputc('\0', f);
-	fflush(f);
+	//fprintf(f, "};\n");
+	//fputc('\0', f);
+	//fflush(f);
 	size_t keymap_size = ftell(f);
 
 	zwp_virtual_keyboard_v1_keymap(
@@ -178,6 +178,8 @@ int main(int argc, const char *argv[])
 
 	wl_display_dispatch(wtype.display);
 	wl_display_roundtrip(wtype.display);
+
+	return 0;
 
 	for (size_t i = 0; i < text_len; i++) {
 		zwp_virtual_keyboard_v1_key(
