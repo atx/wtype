@@ -93,30 +93,45 @@ int main(int argc, const char *argv[])
 	// Now we process the input
 
 	setlocale(LC_CTYPE, "");
-	// TODO: Merge all argvs
-	size_t raw_len = strlen(argv[1]);
-	wchar_t text[raw_len + 1];
+	size_t raw_len = 0;
+	for (int i = 1; i < argc; i++) {
+		// byte count + space
+		raw_len += strlen(argv[i]) + 1;
+	}
+	wchar_t text[raw_len + 1]; // Upper bound on size
 	memset(text, 0, sizeof(text));
-	ssize_t text_len = mbstowcs(text, argv[1], raw_len);
-	if (text_len < 0) {
-		fail("Failed to deencode input argv");
+	size_t text_len = 0;
+	for (int i = 1; i < argc; i++) {
+		wchar_t tmp[strlen(argv[i]) + 2];
+		ssize_t ret = mbstowcs(tmp, argv[i], raw_len - text_len);
+		if (ret < 0) {
+			fail("Failed to deencode input argv");
+		}
+		if (i == argc - 1) {
+			tmp[ret] = 0;
+		} else {
+			tmp[ret++] = L' ';
+			tmp[ret] = 0;
+		}
+		wcscat(text, tmp);
+		text_len += ret;
 	}
 
 	unsigned int text_codes[text_len];
-	wchar_t keychars[text_len];  // Upper bound
-	memset(keychars, 0, sizeof(keychars));
+	wchar_t key_to_char[text_len];  // Upper bound
+	memset(key_to_char, 0, sizeof(key_to_char));
 	int char_count = 0;
-	for (ssize_t i = 0; i < text_len; i++) {
+	for (size_t i = 0; i < text_len; i++) {
 		bool found = false;
 		for (ssize_t k = 0; k < char_count; k++) {
-			if (text[i] == keychars[k]) {
+			if (text[i] == key_to_char[k]) {
 				text_codes[i] = k;
 				found = true;
 				break;
 			}
 		}
 		if (!found) {
-			keychars[char_count] = text[i];
+			key_to_char[char_count] = text[i];
 			text_codes[i] = char_count;
 			char_count++;
 		}
@@ -148,7 +163,7 @@ int main(int argc, const char *argv[])
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	fprintf(f, "name[group1]=\"English (US)\";\n");
 	for (int i = 0; i < char_count; i++) {
-		fprintf(f, "key <K%d> {[U%04x]};\n", i, keychars[i]);
+		fprintf(f, "key <K%d> {[U%04x]};\n", i, key_to_char[i]);
 	}
 	fprintf(f, "};\n");
 
@@ -164,7 +179,7 @@ int main(int argc, const char *argv[])
 	wl_display_dispatch(wtype.display);
 	wl_display_roundtrip(wtype.display);
 
-	for (int i = 0; i < text_len; i++) {
+	for (size_t i = 0; i < text_len; i++) {
 		zwp_virtual_keyboard_v1_key(
 			wtype.keyboard, 0, text_codes[i], WL_KEYBOARD_KEY_STATE_PRESSED
 		);
