@@ -1,14 +1,15 @@
 
+#include <fcntl.h>
+#include <locale.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
-#include <wchar.h>
-#include <stdbool.h>
 #include <wayland-client.h>
-#include <locale.h>
+#include <wchar.h>
 
 #include "wayland-virtual-keyboard-client-protocol.h"
 
@@ -138,9 +139,20 @@ int main(int argc, const char *argv[])
 	}
 
 	// Generate the keymap
-	// TODO: Move to SHM
-	const char *filename = "/tmp/wtype";
-	int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0660);
+	const char *filename_format = "/wlay-%d";
+	char filename[sizeof(filename_format) + 10];
+	int fd = -1;
+	for (int i = 0; i < 1000; i++) {
+		snprintf(filename, sizeof(filename), filename_format, i);
+		fd = shm_open(filename, O_RDWR | O_CREAT | O_TRUNC, 0660);
+		if (fd >= 0) {
+			break;
+		}
+	}
+	if (fd <= 0) {
+		fail("Failed to open SHM object");
+	}
+	// Note: this is technically undefined, we can't do fdopen on SHM objects
 	FILE *f = fdopen(fd, "w");
 
 	fprintf(f, "xkb_keymap {\n");
@@ -178,6 +190,8 @@ int main(int argc, const char *argv[])
 
 	wl_display_dispatch(wtype.display);
 	wl_display_roundtrip(wtype.display);
+
+	fclose(f);
 
 	for (size_t i = 0; i < text_len; i++) {
 		zwp_virtual_keyboard_v1_key(
