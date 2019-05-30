@@ -28,3 +28,5 @@ include_directories ("${CMAKE_BINARY_DIR}")
 
 add_executable (wtype main.c ${VIRTUAL_KEYBOARD_SRC})
 target_link_libraries (wtype rt ${Wayland_LIBRARIES})
+
+install (TARGETS wtype RUNTIME DESTINATION bin COMPONENT bin)

@@ -8,7 +8,7 @@ $ mkdir build
 $ cd build
 $ cmake ..
 $ make
-$ ./wtype
+$ sudo make install
 ```
 
 ## Usage
