@@ -139,13 +139,16 @@ int main(int argc, const char *argv[])
 	}
 
 	// Generate the keymap
-	const char *filename_format = "/wlay-%d";
+	const char *filename_format = "/wtype-%d";
 	char filename[sizeof(filename_format) + 10];
 	int fd = -1;
 	for (int i = 0; i < 1000; i++) {
 		snprintf(filename, sizeof(filename), filename_format, i);
-		fd = shm_open(filename, O_RDWR | O_CREAT | O_TRUNC, 0660);
+		fd = shm_open(filename, O_RDWR | O_EXCL | O_CREAT | O_TRUNC, 0660);
 		if (fd >= 0) {
+			// We can unlink immediately - wayland eats the file descriptor
+			// not filename
+			shm_unlink(filename);
 			break;
 		}
 	}
