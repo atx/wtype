@@ -176,7 +176,6 @@ int main(int argc, const char *argv[])
 	fprintf(f, "xkb_compatibility \"(unnamed)\" {};\n");
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
-	fprintf(f, "name[group1]=\"English (US)\";\n");
 	for (int i = 0; i < char_count; i++) {
 		fprintf(f, "key <K%d> {[U%04x]};\n", i, key_to_char[i]);
 	}
