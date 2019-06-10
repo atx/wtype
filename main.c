@@ -151,6 +151,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 	wtype->commands = calloc(argc, sizeof(wtype->commands[0])); // Upper bound
 	wtype->command_count = 0;
 	bool raw_text = false;
+	bool prefix_with_space = false;
 	for (int i = 1; i < argc; i++) {
 		struct wtype_command *cmd = &wtype->commands[wtype->command_count];
 		if (!raw_text && !strcmp("--", argv[i])) {
@@ -191,6 +192,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 			} else {
 				fail("Unknown parameter %s", argv[i]);
 			}
+			prefix_with_space = false;
 			i++;
 			wtype->command_count++;
 		} else {
@@ -198,19 +200,28 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 			cmd->type = WTYPE_COMMAND_TEXT;
 			wtype->command_count++;
 
-			size_t raw_len = strlen(argv[i]) + 1;
+			size_t raw_len = strlen(argv[i]) + 2; // NULL byte and the potential space
 			wchar_t text[raw_len];  // Upper bound on size
 			memset(text, 0, sizeof(text));
 			setlocale(LC_CTYPE, "");
-			ssize_t ret = mbstowcs(text, argv[i], ARRAY_SIZE(text));
+			ssize_t ret = mbstowcs(
+				prefix_with_space ? &text[1] : text,
+				argv[i],
+				prefix_with_space ? ARRAY_SIZE(text) - 1 : ARRAY_SIZE(text)
+			);
 			if (ret < 0) {
 				fail("Failed to deencode input argv");
+			}
+			if (prefix_with_space) {
+				text[0] = L' ';
+				ret++;
 			}
 			cmd->key_codes = calloc(ret, sizeof(cmd->key_codes[0]));
 			cmd->key_codes_len = ret;
 			for (ssize_t k = 0; k < ret; k++) {
 				cmd->key_codes[k] = get_key_code(wtype, text[k]);
 			}
+			prefix_with_space = true;
 		}
 	}
 }
