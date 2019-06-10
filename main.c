@@ -22,7 +22,9 @@ enum wtype_command_type {
 	WTYPE_COMMAND_TEXT = 0,
 	WTYPE_COMMAND_MOD_PRESS = 1,
 	WTYPE_COMMAND_MOD_RELEASE = 2,
-	WTYPE_COMMAND_SLEEP = 3
+	WTYPE_COMMAND_KEY_PRESS = 3,
+	WTYPE_COMMAND_KEY_RELEASE = 4,
+	WTYPE_COMMAND_SLEEP = 5
 };
 
 
@@ -43,6 +45,7 @@ struct wtype_command {
 			unsigned int *key_codes;
 			size_t key_codes_len;
 		};
+		unsigned int single_key_code;
 		enum wtype_mod mod;
 		unsigned int sleep_ms;
 	};
@@ -178,6 +181,14 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				cmd->key_codes = malloc(sizeof(cmd->key_codes[0]));
 				cmd->key_codes_len = 1;
 				cmd->key_codes[0] = get_key_code(wtype, ks);
+			} else if (!strcmp("-P", argv[i]) || !strcmp("-p", argv[i])) {
+				// Press/release a key
+				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
+				if (ks == XKB_KEY_NoSymbol) {
+					fail("Unknown key '%s'", argv[i + 1]);
+				}
+				cmd->type = argv[i][1] == 'P' ? WTYPE_COMMAND_KEY_PRESS : WTYPE_COMMAND_KEY_RELEASE;
+				cmd->single_key_code = get_key_code(wtype, ks);
 			} else {
 				fail("Unknown parameter %s", argv[i]);
 			}
@@ -238,6 +249,17 @@ static void run_mod(struct wtype *wtype, struct wtype_command *cmd)
 }
 
 
+static void run_key(struct wtype *wtype, struct wtype_command *cmd)
+{
+	zwp_virtual_keyboard_v1_key(
+		wtype->keyboard, 0, cmd->single_key_code,
+		cmd->type == WTYPE_COMMAND_KEY_PRESS ?
+			WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED
+	);
+	wl_display_roundtrip(wtype->display);
+}
+
+
 static void run_text(struct wtype *wtype, struct wtype_command *cmd)
 {
 	for (size_t i = 0; i < cmd->key_codes_len; i++) {
@@ -259,6 +281,8 @@ static void run_commands(struct wtype *wtype)
 		[WTYPE_COMMAND_SLEEP] = run_sleep,
 		[WTYPE_COMMAND_MOD_PRESS] = run_mod,
 		[WTYPE_COMMAND_MOD_RELEASE] = run_mod,
+		[WTYPE_COMMAND_KEY_PRESS] = run_key,
+		[WTYPE_COMMAND_KEY_RELEASE] = run_key,
 		[WTYPE_COMMAND_TEXT] = run_text,
 	};
 	for (unsigned int i = 0; i < wtype->command_count; i++) {
