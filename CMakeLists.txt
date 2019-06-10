@@ -7,6 +7,8 @@ find_package(ECM REQUIRED NO_MODULE)
 set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
 find_package (Wayland REQUIRED)
 find_package (WaylandScanner REQUIRED)
+find_package (PkgConfig REQUIRED)
+pkg_search_module (XKBCOMMON REQUIRED xkbcommon)
 
 option (WITH_ASAN "Enable ASan" OFF)
 
@@ -25,8 +27,9 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wno-unused-parameter -Wno-un
 
 include_directories (nuklear/)
 include_directories ("${CMAKE_BINARY_DIR}")
+include_directories ("${XKBCOMMON_INCLUDEDIR}")
 
 add_executable (wtype main.c ${VIRTUAL_KEYBOARD_SRC})
-target_link_libraries (wtype rt ${Wayland_LIBRARIES})
+target_link_libraries (wtype rt ${Wayland_LIBRARIES} ${XKBCOMMON_LIBRARIES})
 
 install (TARGETS wtype RUNTIME DESTINATION bin COMPONENT bin)

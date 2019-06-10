@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <wayland-client.h>
 #include <wchar.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include "wayland-virtual-keyboard-client-protocol.h"
 
@@ -138,14 +139,6 @@ unsigned int get_key_code(struct wtype *wtype, wchar_t ch)
 }
 
 
-// TODO: Expand this
-static const struct {wchar_t code; const char *name;} special_keys[] = {
-	{'\t', "Tab"},
-	{'\b', "BackSpace"},
-	{'\n', "Return"},
-};
-
-
 static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 {
 	wtype->commands = calloc(argc, sizeof(wtype->commands[0])); // Upper bound
@@ -177,18 +170,14 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				}
 			} else if (!strcmp("-k", argv[i])) {
 				size_t k;
-				for (k = 0; k < ARRAY_SIZE(special_keys); k++) {
-					if (!strcasecmp(special_keys[k].name, argv[i + 1])) {
-						break;
-					}
-				}
-				if (k == ARRAY_SIZE(special_keys)) {
-					fail("Unknown special key '%s'", argv[i + 1]);
+				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
+				if (ks == XKB_KEY_NoSymbol) {
+					fail("Unknown key '%s'", argv[i + 1]);
 				}
 				cmd->type = WTYPE_COMMAND_TEXT;
 				cmd->key_codes = malloc(sizeof(cmd->key_codes[0]));
 				cmd->key_codes_len = 1;
-				cmd->key_codes[0] = get_key_code(wtype, special_keys[k].code);
+				cmd->key_codes[0] = get_key_code(wtype, ks);
 			} else {
 				fail("Unknown parameter %s", argv[i]);
 			}
@@ -318,16 +307,16 @@ static void upload_keymap(struct wtype *wtype)
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		size_t k;
-		for (k = 0; k < ARRAY_SIZE(special_keys); k++) {
-			if (special_keys[k].code == wtype->keymap[i]) {
-				fprintf(f, "key <K%ld> {[%s]};\n", i, special_keys[k].name);
-				break;
-			}
+		char sym_name[256];
+		xkb_keysym_get_name(wtype->keymap[i], sym_name, sizeof(sym_name));
+		fprintf(f, "key <K%ld> {[", i);
+		if (sym_name[0] == '0' && sym_name[1] == 'x') {
+			// Unicode, we need special handling for these for whatever reason
+			fprintf(f, "U%04x", wtype->keymap[i]);
+		} else {
+			fprintf(f, "%s", sym_name);
 		}
-		if (k == ARRAY_SIZE(special_keys)) {
-			fprintf(f, "key <K%ld> {[U%04x]};\n", i, wtype->keymap[i]);
-		}
+		fprintf(f, "]};\n");
 	}
 	fprintf(f, "};\n");
 
