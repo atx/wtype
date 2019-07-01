@@ -1,5 +1,5 @@
 cmake_minimum_required (VERSION 3.6)
-project (wlay)
+project (wtype)
 
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
