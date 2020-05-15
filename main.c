@@ -12,8 +12,7 @@
 #include <wchar.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include "wayland-virtual-keyboard-client-protocol.h"
-
+#include "virtual-keyboard-unstable-v1-client-protocol.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
@@ -178,7 +177,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 					fail("Invalid sleep time");
 				}
 			} else if (!strcmp("-k", argv[i])) {
-				size_t k;
+				//size_t k;
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
 				if (ks == XKB_KEY_NoSymbol) {
 					fail("Unknown key '%s'", argv[i + 1]);
