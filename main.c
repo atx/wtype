@@ -160,10 +160,16 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				// Press modifier
 				cmd->type = WTYPE_COMMAND_MOD_PRESS;
 				cmd->mod = name_to_mod(argv[i + 1]);
+				if (cmd->mod == WTYPE_MOD_NONE) {
+					fail("Invalid modifier name '%s'", argv[i + 1]);
+				}
 			} else if (!strcmp("-m", argv[i])) {
 				// Release modifier
 				cmd->type = WTYPE_COMMAND_MOD_RELEASE;
 				cmd->mod = name_to_mod(argv[i + 1]);
+				if (cmd->mod == WTYPE_MOD_NONE) {
+					fail("Invalid modifier name '%s'", argv[i + 1]);
+				}
 			} else if (!strcmp("-s", argv[i])) {
 				// Sleep
 				cmd->type = WTYPE_COMMAND_SLEEP;
