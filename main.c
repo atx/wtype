@@ -267,10 +267,12 @@ static void run_text(struct wtype *wtype, struct wtype_command *cmd)
 			wtype->keyboard, 0, cmd->key_codes[i], WL_KEYBOARD_KEY_STATE_PRESSED
 		);
 		wl_display_roundtrip(wtype->display);
+		usleep(2000);
 		zwp_virtual_keyboard_v1_key(
 			wtype->keyboard, 0, cmd->key_codes[i], WL_KEYBOARD_KEY_STATE_RELEASED
 		);
 		wl_display_roundtrip(wtype->display);
+		usleep(2000);
 	}
 }
 
