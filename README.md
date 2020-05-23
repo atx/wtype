@@ -15,7 +15,7 @@ $ sudo make install
 
 ```
 # Type unicode characters
-$ wtype ∇⋅∇ψ = ρ
+wtype ∇⋅∇ψ = ρ
 ```
 
 To press/release modifiers, `-M`/`-m` can be used respectively.
