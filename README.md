@@ -4,11 +4,9 @@ xdotool type for wayland
 ## Building
 
 ```
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
-$ sudo make install
+meson build
+ninja -C build
+sudo ninja -C build install
 ```
 
 ## Usage
