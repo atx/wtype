@@ -360,7 +360,6 @@ static void upload_keymap(struct wtype *wtype)
 		wtype->keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fileno(f), keymap_size
 	);
 
-	wl_display_dispatch(wtype->display);
 	wl_display_roundtrip(wtype->display);
 
 	fclose(f);
