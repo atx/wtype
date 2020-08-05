@@ -41,4 +41,4 @@ wtype -P right -s 1000 -p right
 
 ## Limitations
 
-To support arbitrary unicode characters, `wtype` generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X it does have an upper limit on the amount of defined keycode-keysym pairs.
+To support arbitrary unicode characters, `wtype` generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X has an upper limit on the amount of defined keycode-keysym pairs.
