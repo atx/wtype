@@ -1,4 +1,6 @@
 
+#define _GNU_SOURCE
+
 #include <fcntl.h>
 #include <locale.h>
 #include <stdbool.h>
