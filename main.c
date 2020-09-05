@@ -25,7 +25,8 @@ enum wtype_command_type {
 	WTYPE_COMMAND_MOD_RELEASE = 2,
 	WTYPE_COMMAND_KEY_PRESS = 3,
 	WTYPE_COMMAND_KEY_RELEASE = 4,
-	WTYPE_COMMAND_SLEEP = 5
+	WTYPE_COMMAND_SLEEP = 5,
+	WTYPE_COMMAND_TEXT_STDIN = 6
 };
 
 
@@ -77,6 +78,8 @@ void fail(const char *format, ...)
 	fprintf(stderr, "\n");
 	exit(EXIT_FAILURE);
 }
+
+static void upload_keymap(struct wtype *wtype);
 
 
 static void handle_wl_event(void *data, struct wl_registry *registry,
@@ -149,10 +152,19 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 	wtype->command_count = 0;
 	bool raw_text = false;
 	bool prefix_with_space = false;
+	bool use_stdin = false;
 	for (int i = 1; i < argc; i++) {
 		struct wtype_command *cmd = &wtype->commands[wtype->command_count];
 		if (!raw_text && !strcmp("--", argv[i])) {
 			raw_text = true;
+		} else if (!strcmp("-", argv[i])) {
+			// Output text from stdin
+			if (use_stdin) {
+				fail("Stdin place-holder can only appear once");
+			}
+			use_stdin = true;
+			cmd->type = WTYPE_COMMAND_TEXT_STDIN;
+			wtype->command_count++;
 		} else if (!raw_text && argv[i][0] == '-'){
 			if (i == argc - 1) {
 				fail("Missing argument to %s", argv[i]);
@@ -266,23 +278,78 @@ static void run_key(struct wtype *wtype, struct wtype_command *cmd)
 	wl_display_roundtrip(wtype->display);
 }
 
+static void type_keycode(struct wtype *wtype, unsigned int key_code)
+{
+	zwp_virtual_keyboard_v1_key(
+			wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_PRESSED
+		);
+		wl_display_roundtrip(wtype->display);
+		usleep(2000);
+		zwp_virtual_keyboard_v1_key(
+			wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_RELEASED
+		);
+		wl_display_roundtrip(wtype->display);
+		usleep(2000);
+}
 
 static void run_text(struct wtype *wtype, struct wtype_command *cmd)
 {
 	for (size_t i = 0; i < cmd->key_codes_len; i++) {
-		zwp_virtual_keyboard_v1_key(
-			wtype->keyboard, 0, cmd->key_codes[i], WL_KEYBOARD_KEY_STATE_PRESSED
-		);
-		wl_display_roundtrip(wtype->display);
-		usleep(2000);
-		zwp_virtual_keyboard_v1_key(
-			wtype->keyboard, 0, cmd->key_codes[i], WL_KEYBOARD_KEY_STATE_RELEASED
-		);
-		wl_display_roundtrip(wtype->display);
-		usleep(2000);
+		type_keycode(wtype, cmd->key_codes[i]);
 	}
 }
 
+static void run_text_stdin(struct wtype *wtype, struct wtype_command *cmd)
+{
+	char kbuf[8];
+	size_t k = 0;
+	wchar_t text_char;
+	const size_t buf_size = 100;
+
+	cmd->key_codes = calloc(buf_size, sizeof(cmd->key_codes[0]));
+	cmd->key_codes_len = 0;
+
+	setlocale(LC_CTYPE, "");
+	while (1) {
+		if ((kbuf[k] = fgetc(stdin)) == EOF) {
+			break;
+		}
+
+		kbuf[k+1] = '\0';
+		size_t ret = mbstowcs(&text_char, kbuf, 1);
+		if (ret == -1) {
+			k++;
+			if (k >= ARRAY_SIZE(kbuf) - 1) {
+				break;
+			}
+			continue;
+		} else if (ret == 0) {
+			k = 0;
+			continue;
+		}
+		k = 0;
+
+		unsigned int key_code = get_key_code(wtype, text_char);
+		cmd->key_codes[cmd->key_codes_len++] = key_code;
+
+		if (cmd->key_codes_len == buf_size) {
+			upload_keymap(wtype);
+			for (size_t i = 0; i < cmd->key_codes_len; i++) {
+				type_keycode(wtype, cmd->key_codes[i]);
+			}
+			cmd->key_codes_len = 0;
+		}
+	}
+
+	if (cmd->key_codes_len != 0) {
+		upload_keymap(wtype);
+		for (size_t i = 0; i < cmd->key_codes_len; i++) {
+			type_keycode(wtype, cmd->key_codes[i]);
+		}
+	}
+
+	free(cmd->key_codes);
+}
 
 static void run_commands(struct wtype *wtype)
 {
@@ -293,6 +360,7 @@ static void run_commands(struct wtype *wtype)
 		[WTYPE_COMMAND_KEY_PRESS] = run_key,
 		[WTYPE_COMMAND_KEY_RELEASE] = run_key,
 		[WTYPE_COMMAND_TEXT] = run_text,
+		[WTYPE_COMMAND_TEXT_STDIN] = run_text_stdin,
 	};
 	for (unsigned int i = 0; i < wtype->command_count; i++) {
 		handlers[wtype->commands[i].type](wtype, &wtype->commands[i]);
