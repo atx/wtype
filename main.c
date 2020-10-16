@@ -368,6 +368,41 @@ static void run_commands(struct wtype *wtype)
 }
 
 
+static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
+{
+	const struct {
+		wchar_t from;
+		wchar_t to;
+	} remap_table[] = {
+		{ '\n', XKB_KEY_Return },
+		{ '\t', XKB_KEY_Tab },
+		{ '\e', XKB_KEY_Escape },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(remap_table); i++) {
+		if (remap_table[i].from == keysym) {
+			keysym = remap_table[i].to;
+			break;
+		}
+	}
+
+	char sym_name[256];
+
+	int ret = xkb_keysym_get_name(keysym, sym_name, sizeof(sym_name));
+	if (ret <= 0) {
+		fail("Unable to get XKB symbol name for keysym %04x\n", keysym);
+		return;
+	}
+
+	if (sym_name[0] == '0' && sym_name[1] == 'x') {
+		// Unicode, we need special handling for these for whatever reason
+		snprintf(sym_name, sizeof(sym_name), "U%04x", keysym);
+	}
+
+	fprintf(f, "%s", sym_name);
+}
+
+
 static void upload_keymap(struct wtype *wtype)
 {
 	const char *filename_format = "/wtype-%d";
@@ -408,15 +443,8 @@ static void upload_keymap(struct wtype *wtype)
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		char sym_name[256];
-		xkb_keysym_get_name(wtype->keymap[i], sym_name, sizeof(sym_name));
 		fprintf(f, "key <K%ld> {[", i);
-		if (sym_name[0] == '0' && sym_name[1] == 'x') {
-			// Unicode, we need special handling for these for whatever reason
-			fprintf(f, "U%04x", wtype->keymap[i]);
-		} else {
-			fprintf(f, "%s", sym_name);
-		}
+		print_keysym_name(wtype->keymap[i], f);
 		fprintf(f, "]};\n");
 	}
 	fprintf(f, "};\n");
