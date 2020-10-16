@@ -282,14 +282,14 @@ static void type_keycode(struct wtype *wtype, unsigned int key_code)
 {
 	zwp_virtual_keyboard_v1_key(
 			wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_PRESSED
-		);
-		wl_display_roundtrip(wtype->display);
-		usleep(2000);
-		zwp_virtual_keyboard_v1_key(
-			wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_RELEASED
-		);
-		wl_display_roundtrip(wtype->display);
-		usleep(2000);
+	);
+	wl_display_roundtrip(wtype->display);
+	usleep(2000);
+	zwp_virtual_keyboard_v1_key(
+		wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_RELEASED
+	);
+	wl_display_roundtrip(wtype->display);
+	usleep(2000);
 }
 
 static void run_text(struct wtype *wtype, struct wtype_command *cmd)
