@@ -35,6 +35,7 @@ enum wtype_mod {
 	WTYPE_MOD_SHIFT = 1,
 	WTYPE_MOD_CAPSLOCK = 2,
 	WTYPE_MOD_CTRL = 4,
+	WTYPE_MOD_ALT = 8,
 	WTYPE_MOD_LOGO = 64,
 	WTYPE_MOD_ALTGR = 128
 };
@@ -115,7 +116,8 @@ static const struct { const char *name; enum wtype_mod mod; } mod_names[] = {
 	{"capslock", WTYPE_MOD_CAPSLOCK},
 	{"ctrl", WTYPE_MOD_CTRL},
 	{"logo", WTYPE_MOD_LOGO},
-	{"alt", WTYPE_MOD_ALTGR},
+	{"win", WTYPE_MOD_LOGO},
+	{"alt", WTYPE_MOD_ALT},
 	{"altgr", WTYPE_MOD_ALTGR},
 };
 
