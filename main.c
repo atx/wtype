@@ -265,6 +265,7 @@ static void run_mod(struct wtype *wtype, struct wtype_command *cmd)
 		wtype->mod_status & WTYPE_MOD_CAPSLOCK, 0
 	);
 
+	wl_display_roundtrip(wtype->display);
 }
 
 
