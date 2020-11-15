@@ -408,23 +408,12 @@ static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
 
 static void upload_keymap(struct wtype *wtype)
 {
-	const char *filename_format = "/wtype-%d";
-	char filename[sizeof(filename_format) + 10];
-	int fd = -1;
-	for (int i = 0; i < 1000; i++) {
-		snprintf(filename, sizeof(filename), filename_format, i);
-		fd = shm_open(filename, O_RDWR | O_EXCL | O_CREAT | O_TRUNC, 0660);
-		if (fd >= 0) {
-			// We can unlink immediately - wayland eats the file descriptor
-			// not filename
-			shm_unlink(filename);
-			break;
-		}
+	char filename[] = "/tmp/wtype-XXXXXX";
+	int fd = mkstemp(filename);
+	if (fd < 0) {
+		fail("Failed to create the temporary keymap file");
 	}
-	if (fd <= 0) {
-		fail("Failed to open SHM object");
-	}
-	// Note: this is technically undefined, we can't do fdopen on SHM objects
+	unlink(filename);
 	FILE *f = fdopen(fd, "w");
 
 	fprintf(f, "xkb_keymap {\n");
