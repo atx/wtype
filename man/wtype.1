@@ -1,0 +1,32 @@
+.\" Manpage for wtype.
+.TH man 1 "23 November 2020" "0.2" "wtype man page"
+.SH NAME
+wtype \- xdotool type for Wayland
+.SH SYNOPSIS
+wtype [text]
+.SH DESCRIPTION
+wtype is a Wayland tool that allows you to simulate keyboard input like xdotool for X11.
+
+.SH OPTIONS
+
+.BR \-M
+Press modifier.
+
+.BR \-m
+Release modifier.
+
+.BR \-P
+Press named key.
+
+.BR \-p
+Release named key.
+
+.SH LIMITATIONS
+To support arbitrary unicode characters, wtype generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X has an upper limit on the amount of defined keycode-keysym pairs.
+
+.SH BUGS
+No known bugs.
+
+.SH AUTHOR
+wtype has been started by Josef Gajdusek.
+Man page is written by Michael 'jubalh' Vetter.
