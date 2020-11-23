@@ -38,6 +38,8 @@ src_files = files(
 
 subdir('protocol')
 
+install_man('man/wtype.1')
+
 executable(
     meson.project_name(),
     src_files,
