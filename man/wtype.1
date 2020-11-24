@@ -1,25 +1,50 @@
 .\" Manpage for wtype.
-.TH man 1 "23 November 2020" "0.2" "wtype man page"
+.TH wtype 1 "23 November 2020" "0.2" "wtype man page"
 .SH NAME
 wtype \- xdotool type for Wayland
 .SH SYNOPSIS
-wtype [text]
+.B wtype
+[TEXT]
+
+.B wtype
+[OPTION_OR_TEXT]... -- [TEXT]...
+
 .SH DESCRIPTION
-wtype is a Wayland tool that allows you to simulate keyboard input like xdotool for X11.
+.PP
+wtype is a Wayland tool that allows you to simulate keyboard input like xdotool type for X11.
+This is accomplished via the virtual-keyboard Wayland protocol.
 
 .SH OPTIONS
+Modifier can be one of "shift", "capslock", "ctrl", "logo", "win", "alt", "altgr".
+Beware that the modifiers get released automatically once the program terminates.
 
-.BR \-M
-Press modifier.
+Named keys are resolved by libxkbcommon, valid identifiers include "Left" and
+"Home".
 
-.BR \-m
-Release modifier.
+.TP
+.BR \-M\ \fIMOD\fR
+Press modifier MOD.
 
-.BR \-P
-Press named key.
+.TP
+.BR \-m\ \fIMOD\fR
+Release modifier MOD.
 
-.BR \-p
-Release named key.
+.TP
+.BR \-P\ \fIKEY\fR
+Press key KEY.
+
+.TP
+.BR \-p\ \fIKEY\fR
+Release key KEY.
+
+.TP
+.BR \-k\ \fIKEY\fR
+Type (press and release) key KEY.
+
+.TP
+.BR \-s\ \fITIME\fR
+Sleep for TIME milliseconds before interpreting the following options. This
+can be used to perform more complicated modifier sequences.
 
 .SH LIMITATIONS
 To support arbitrary unicode characters, wtype generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X has an upper limit on the amount of defined keycode-keysym pairs.
