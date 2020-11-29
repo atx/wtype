@@ -1,6 +1,8 @@
 # wtype
 xdotool type for wayland
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/wtype.svg)](https://repology.org/project/wtype/versions)
+
 ## Building
 
 ```
