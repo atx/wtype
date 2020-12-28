@@ -1,6 +1,4 @@
 
-#define _GNU_SOURCE
-
 #include <fcntl.h>
 #include <locale.h>
 #include <stdbool.h>
@@ -140,8 +138,8 @@ unsigned int get_key_code(struct wtype *wtype, wchar_t ch)
 			return i;
 		}
 	}
-	wtype->keymap = reallocarray(
-		wtype->keymap, ++wtype->keymap_len, sizeof(wtype->keymap[0])
+	wtype->keymap = realloc(
+		wtype->keymap, ++wtype->keymap_len * sizeof(wtype->keymap[0])
 	);
 	wtype->keymap[wtype->keymap_len - 1] = ch;
 	return wtype->keymap_len - 1;
