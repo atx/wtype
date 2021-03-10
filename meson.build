@@ -1,6 +1,6 @@
 project(
     'wtype', 'c',
-    version: '0.0.1',
+    version: '0.3',
     license: 'MIT',
     default_options : [
         'buildtype=release',
@@ -16,7 +16,7 @@ else
     git_commit_hash = run_command([git.path(), 'describe', '--always', '--tags']).stdout().strip()
     git_branch = run_command([git.path(), 'rev-parse', '--abbrev-ref', 'HEAD']).stdout().strip()
     version = '"@0@ (" __DATE__ ", branch \'@1@\')"'.format(git_commit_hash, git_branch)
-    add_project_arguments('-DVERSION=@0@'.format(version), language: 'cpp')
+    add_project_arguments('-DVERSION=@0@'.format(version), language: 'c')
 endif
 cc = meson.get_compiler('c')
 
