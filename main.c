@@ -428,8 +428,9 @@ static void upload_keymap(struct wtype *wtype)
 	}
 	fprintf(f, "};\n");
 
-	fprintf(f, "xkb_types \"(unnamed)\" {};\n");
-	fprintf(f, "xkb_compatibility \"(unnamed)\" {};\n");
+	// TODO: Is including "complete" here really a good idea?
+	fprintf(f, "xkb_types \"(unnamed)\" { include \"complete\" };\n");
+	fprintf(f, "xkb_compatibility \"(unnamed)\" { include \"complete\" };\n");
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
