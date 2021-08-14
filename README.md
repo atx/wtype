@@ -40,7 +40,3 @@ virtual keyboard object. To help performing a more complicated sequence of key p
 # Hold the Right key for 1000ms
 wtype -P right -s 1000 -p right
 ```
-
-## Limitations
-
-To support arbitrary unicode characters, `wtype` generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X has an upper limit on the amount of defined keycode-keysym pairs.
