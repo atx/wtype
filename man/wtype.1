@@ -9,6 +9,9 @@ wtype \- xdotool type for Wayland
 .B wtype
 [OPTION_OR_TEXT]... -- [TEXT]...
 
+.B wtype
+[OPTION_OR_TEXT] -
+
 .SH DESCRIPTION
 .PP
 wtype is a Wayland tool that allows you to simulate keyboard input like xdotool type for X11.
@@ -45,6 +48,10 @@ Type (press and release) key KEY.
 .BR \-s\ \fITIME\fR
 Sleep for TIME milliseconds before interpreting the following options. This
 can be used to perform more complicated modifier sequences.
+
+.TP
+.BR \-
+Read text to type from stdin. This option can appear only once.
 
 .SH LIMITATIONS
 To support arbitrary unicode characters, wtype generates a keymap on the fly and submits it to the compositor for distribution. Unfortunately this is broken under Xwayland as X has an upper limit on the amount of defined keycode-keysym pairs.
