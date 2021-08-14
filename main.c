@@ -369,19 +369,21 @@ static void run_commands(struct wtype *wtype)
 }
 
 
-static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
+static void print_keysym_name(wchar_t wchr, FILE *f)
 {
 	const struct {
 		wchar_t from;
-		wchar_t to;
+		xkb_keysym_t to;
 	} remap_table[] = {
-		{ '\n', XKB_KEY_Return },
-		{ '\t', XKB_KEY_Tab },
-		{ '\e', XKB_KEY_Escape },
+		{ L'\n', XKB_KEY_Return },
+		{ L'\t', XKB_KEY_Tab },
+		{ L'\e', XKB_KEY_Escape },
 	};
 
+	xkb_keysym_t keysym = xkb_utf32_to_keysym(wchr);
+
 	for (size_t i = 0; i < ARRAY_SIZE(remap_table); i++) {
-		if (remap_table[i].from == keysym) {
+		if (remap_table[i].from == wchr) {
 			keysym = remap_table[i].to;
 			break;
 		}
