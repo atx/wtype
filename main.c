@@ -60,8 +60,14 @@ struct wtype {
 	struct zwp_virtual_keyboard_manager_v1 *manager;
 	struct zwp_virtual_keyboard_v1 *keyboard;
 
+	// Stores a keycode -> wchar_t mapping
+	// Beware that this is one-indexed (as zero-keycodes are sometimes
+	// not handled well by clients).
+	// That is, keymap[0] is a wchar_t which we can type by sending
+	// the keycode 1
 	size_t keymap_len;
 	wchar_t *keymap;
+
 	uint32_t mod_status;
 	size_t command_count;
 	struct wtype_command *commands;
@@ -135,14 +141,14 @@ unsigned int get_key_code(struct wtype *wtype, wchar_t ch)
 {
 	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
 		if (wtype->keymap[i] == ch) {
-			return i;
+			return i + 1;
 		}
 	}
 	wtype->keymap = realloc(
 		wtype->keymap, ++wtype->keymap_len * sizeof(wtype->keymap[0])
 	);
 	wtype->keymap[wtype->keymap_len - 1] = ch;
-	return wtype->keymap_len - 1;
+	return wtype->keymap_len;
 }
 
 
@@ -423,10 +429,10 @@ static void upload_keymap(struct wtype *wtype)
 		"xkb_keycodes \"(unnamed)\" {\n"
 		"minimum = 8;\n"
 		"maximum = %ld;\n",
-		wtype->keymap_len + 8
+		wtype->keymap_len + 8 + 1
 	);
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		fprintf(f, "<K%ld> = %ld;\n", i, i + 8);
+		fprintf(f, "<K%ld> = %ld;\n", i + 1, i + 8 + 1);
 	}
 	fprintf(f, "};\n");
 
@@ -436,7 +442,7 @@ static void upload_keymap(struct wtype *wtype)
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		fprintf(f, "key <K%ld> {[", i);
+		fprintf(f, "key <K%ld> {[", i + 1);
 		print_keysym_name(wtype->keymap[i], f);
 		fprintf(f, "]};\n");
 	}
