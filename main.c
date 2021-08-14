@@ -157,7 +157,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 		struct wtype_command *cmd = &wtype->commands[wtype->command_count];
 		if (!raw_text && !strcmp("--", argv[i])) {
 			raw_text = true;
-		} else if (!strcmp("-", argv[i])) {
+		} else if (!raw_text && !strcmp("-", argv[i])) {
 			// Output text from stdin
 			if (use_stdin) {
 				fail("Stdin place-holder can only appear once");
