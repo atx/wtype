@@ -53,6 +53,12 @@ struct wtype_command {
 };
 
 
+struct keymap_entry {
+	xkb_keysym_t xkb;
+	wchar_t wchr;
+};
+
+
 struct wtype {
 	struct wl_display *display;
 	struct wl_registry *registry;
@@ -60,13 +66,16 @@ struct wtype {
 	struct zwp_virtual_keyboard_manager_v1 *manager;
 	struct zwp_virtual_keyboard_v1 *keyboard;
 
-	// Stores a keycode -> wchar_t mapping
+	// Stores a keycode -> (xkb_keysym_t, wchar_t) mapping
 	// Beware that this is one-indexed (as zero-keycodes are sometimes
 	// not handled well by clients).
-	// That is, keymap[0] is a wchar_t which we can type by sending
-	// the keycode 1
+	// That is, keymap[0] is a (xkb_keysym_t, wchar_t) pair which we can type by sending
+	// the keycode 1.
+	// Beware that the wchar_t does not have to be valid (and is 0 in such cases)
+	// This is since some keysyms need not have a unicode representation
+	// (such as the arrow keys and similar)
 	size_t keymap_len;
-	wchar_t *keymap;
+	struct keymap_entry *keymap;
 
 	uint32_t mod_status;
 	size_t command_count;
@@ -137,18 +146,55 @@ enum wtype_mod name_to_mod(const char *name)
 }
 
 
-unsigned int get_key_code(struct wtype *wtype, wchar_t ch)
+static unsigned int append_keymap_entry(struct wtype *wtype, wchar_t ch, xkb_keysym_t xkb)
 {
-	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
-		if (wtype->keymap[i] == ch) {
-			return i + 1;
-		}
-	}
 	wtype->keymap = realloc(
 		wtype->keymap, ++wtype->keymap_len * sizeof(wtype->keymap[0])
 	);
-	wtype->keymap[wtype->keymap_len - 1] = ch;
+	wtype->keymap[wtype->keymap_len - 1].wchr = ch;
+	wtype->keymap[wtype->keymap_len - 1].xkb = xkb;
 	return wtype->keymap_len;
+}
+
+
+unsigned int get_key_code_by_wchar(struct wtype *wtype, wchar_t ch)
+{
+	const struct {
+		wchar_t from;
+		xkb_keysym_t to;
+	} remap_table[] = {
+		{ L'\n', XKB_KEY_Return },
+		{ L'\t', XKB_KEY_Tab },
+		{ L'\e', XKB_KEY_Escape },
+	};
+	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
+		if (wtype->keymap[i].wchr == ch) {
+			return i + 1;
+		}
+	}
+
+	// TODO: Maybe warn if this actually ends up being XKB_KEY_NoSymbol or something?
+	xkb_keysym_t xkb = xkb_utf32_to_keysym(ch);
+	for (size_t i = 0; i < ARRAY_SIZE(remap_table); i++) {
+		if (remap_table[i].from == ch) {
+			// This overwrites whatever xkb gave us before.
+			xkb = remap_table[i].to;
+			break;
+		}
+	}
+
+	return append_keymap_entry(wtype, ch, xkb);
+}
+
+unsigned int get_key_code_by_xkb(struct wtype *wtype, xkb_keysym_t xkb)
+{
+	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
+		if (wtype->keymap[i].xkb == xkb) {
+			return i + 1;
+		}
+	}
+
+	return append_keymap_entry(wtype, 0, xkb);
 }
 
 
@@ -205,7 +251,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				cmd->type = WTYPE_COMMAND_TEXT;
 				cmd->key_codes = malloc(sizeof(cmd->key_codes[0]));
 				cmd->key_codes_len = 1;
-				cmd->key_codes[0] = get_key_code(wtype, ks);
+				cmd->key_codes[0] = get_key_code_by_xkb(wtype, ks);
 			} else if (!strcmp("-P", argv[i]) || !strcmp("-p", argv[i])) {
 				// Press/release a key
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
@@ -213,7 +259,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 					fail("Unknown key '%s'", argv[i + 1]);
 				}
 				cmd->type = argv[i][1] == 'P' ? WTYPE_COMMAND_KEY_PRESS : WTYPE_COMMAND_KEY_RELEASE;
-				cmd->single_key_code = get_key_code(wtype, ks);
+				cmd->single_key_code = get_key_code_by_xkb(wtype, ks);
 			} else {
 				fail("Unknown parameter %s", argv[i]);
 			}
@@ -244,7 +290,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 			cmd->key_codes = calloc(ret, sizeof(cmd->key_codes[0]));
 			cmd->key_codes_len = ret;
 			for (ssize_t k = 0; k < ret; k++) {
-				cmd->key_codes[k] = get_key_code(wtype, text[k]);
+				cmd->key_codes[k] = get_key_code_by_wchar(wtype, text[k]);
 			}
 			prefix_with_space = true;
 		}
@@ -336,7 +382,7 @@ static void run_text_stdin(struct wtype *wtype, struct wtype_command *cmd)
 		}
 		k = 0;
 
-		unsigned int key_code = get_key_code(wtype, text_char);
+		unsigned int key_code = get_key_code_by_wchar(wtype, text_char);
 		cmd->key_codes[cmd->key_codes_len++] = key_code;
 
 		if (cmd->key_codes_len == buf_size) {
@@ -375,26 +421,8 @@ static void run_commands(struct wtype *wtype)
 }
 
 
-static void print_keysym_name(wchar_t wchr, FILE *f)
+static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
 {
-	const struct {
-		wchar_t from;
-		xkb_keysym_t to;
-	} remap_table[] = {
-		{ L'\n', XKB_KEY_Return },
-		{ L'\t', XKB_KEY_Tab },
-		{ L'\e', XKB_KEY_Escape },
-	};
-
-	xkb_keysym_t keysym = xkb_utf32_to_keysym(wchr);
-
-	for (size_t i = 0; i < ARRAY_SIZE(remap_table); i++) {
-		if (remap_table[i].from == wchr) {
-			keysym = remap_table[i].to;
-			break;
-		}
-	}
-
 	char sym_name[256];
 
 	int ret = xkb_keysym_get_name(keysym, sym_name, sizeof(sym_name));
@@ -443,7 +471,7 @@ static void upload_keymap(struct wtype *wtype)
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
 		fprintf(f, "key <K%ld> {[", i + 1);
-		print_keysym_name(wtype->keymap[i], f);
+		print_keysym_name(wtype->keymap[i].xkb, f);
 		fprintf(f, "]};\n");
 	}
 	fprintf(f, "};\n");
