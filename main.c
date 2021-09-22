@@ -431,11 +431,6 @@ static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
 		return;
 	}
 
-	if (sym_name[0] == '0' && sym_name[1] == 'x') {
-		// Unicode, we need special handling for these for whatever reason
-		snprintf(sym_name, sizeof(sym_name), "U%04x", keysym);
-	}
-
 	fprintf(f, "%s", sym_name);
 }
 
