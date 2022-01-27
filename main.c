@@ -45,6 +45,7 @@ struct wtype_command {
 		struct {
 			unsigned int *key_codes;
 			size_t key_codes_len;
+			unsigned int delay_ms;
 		};
 		unsigned int single_key_code;
 		enum wtype_mod mod;
@@ -205,6 +206,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 	bool raw_text = false;
 	bool prefix_with_space = false;
 	bool use_stdin = false;
+	unsigned int delay_ms = 0;
 	for (int i = 1; i < argc; i++) {
 		struct wtype_command *cmd = &wtype->commands[wtype->command_count];
 		if (!raw_text && !strcmp("--", argv[i])) {
@@ -216,6 +218,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 			}
 			use_stdin = true;
 			cmd->type = WTYPE_COMMAND_TEXT_STDIN;
+			cmd->delay_ms = delay_ms;
 			wtype->command_count++;
 		} else if (!raw_text && argv[i][0] == '-'){
 			if (i == argc - 1) {
@@ -242,6 +245,12 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				if (cmd->sleep_ms <= 0) {
 					fail("Invalid sleep time");
 				}
+			} else if (!strcmp("-d", argv[i])) {
+				// Set delay between type keystrokes
+				delay_ms = atoi(argv[i + 1]);
+				if (delay_ms <= 0) {
+					fail("Invalid sleep time");
+				}
 			} else if (!strcmp("-k", argv[i])) {
 				//size_t k;
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
@@ -252,6 +261,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				cmd->key_codes = malloc(sizeof(cmd->key_codes[0]));
 				cmd->key_codes_len = 1;
 				cmd->key_codes[0] = get_key_code_by_xkb(wtype, ks);
+				cmd->delay_ms = delay_ms;
 			} else if (!strcmp("-P", argv[i]) || !strcmp("-p", argv[i])) {
 				// Press/release a key
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
@@ -269,6 +279,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 		} else {
 			// Text
 			cmd->type = WTYPE_COMMAND_TEXT;
+			cmd->delay_ms = delay_ms;
 			wtype->command_count++;
 
 			size_t raw_len = strlen(argv[i]) + 2; // NULL byte and the potential space
@@ -349,6 +360,7 @@ static void run_text(struct wtype *wtype, struct wtype_command *cmd)
 {
 	for (size_t i = 0; i < cmd->key_codes_len; i++) {
 		type_keycode(wtype, cmd->key_codes[i]);
+		usleep(cmd->delay_ms * 1000);
 	}
 }
 
@@ -389,6 +401,7 @@ static void run_text_stdin(struct wtype *wtype, struct wtype_command *cmd)
 			upload_keymap(wtype);
 			for (size_t i = 0; i < cmd->key_codes_len; i++) {
 				type_keycode(wtype, cmd->key_codes[i]);
+				usleep(cmd->delay_ms * 1000);
 			}
 			cmd->key_codes_len = 0;
 		}
@@ -398,6 +411,7 @@ static void run_text_stdin(struct wtype *wtype, struct wtype_command *cmd)
 		upload_keymap(wtype);
 		for (size_t i = 0; i < cmd->key_codes_len; i++) {
 			type_keycode(wtype, cmd->key_codes[i]);
+			usleep(cmd->delay_ms * 1000);
 		}
 	}
 
