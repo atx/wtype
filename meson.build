@@ -1,6 +1,6 @@
 project(
     'wtype', 'c',
-    version: '0.3',
+    version: '0.4',
     license: 'MIT',
     default_options : [
         'buildtype=release',
