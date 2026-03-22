@@ -15,7 +15,7 @@
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
-
+#define BASE_KEYCODE 30 // Do not clash with control keys in 1-29
 
 enum wtype_command_type {
 	WTYPE_COMMAND_TEXT = 0,
@@ -170,7 +170,7 @@ unsigned int get_key_code_by_wchar(struct wtype *wtype, wchar_t ch)
 	};
 	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
 		if (wtype->keymap[i].wchr == ch) {
-			return i + 1;
+			return i + BASE_KEYCODE;
 		}
 	}
 
@@ -184,18 +184,18 @@ unsigned int get_key_code_by_wchar(struct wtype *wtype, wchar_t ch)
 		}
 	}
 
-	return append_keymap_entry(wtype, ch, xkb);
+	return append_keymap_entry(wtype, ch, xkb) - 1 + BASE_KEYCODE;
 }
 
 unsigned int get_key_code_by_xkb(struct wtype *wtype, xkb_keysym_t xkb)
 {
 	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
 		if (wtype->keymap[i].xkb == xkb) {
-			return i + 1;
+			return i + BASE_KEYCODE;
 		}
 	}
 
-	return append_keymap_entry(wtype, 0, xkb);
+	return append_keymap_entry(wtype, 0, xkb) - 1 + BASE_KEYCODE;
 }
 
 
@@ -466,10 +466,10 @@ static void upload_keymap(struct wtype *wtype)
 		"xkb_keycodes \"(unnamed)\" {\n"
 		"minimum = 8;\n"
 		"maximum = %ld;\n",
-		wtype->keymap_len + 8 + 1
+		wtype->keymap_len + 8 + BASE_KEYCODE
 	);
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		fprintf(f, "<K%ld> = %ld;\n", i + 1, i + 8 + 1);
+		fprintf(f, "<K%ld> = %ld;\n", i + BASE_KEYCODE, i + 8 + BASE_KEYCODE);
 	}
 	fprintf(f, "};\n");
 
@@ -479,7 +479,7 @@ static void upload_keymap(struct wtype *wtype)
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
 	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		fprintf(f, "key <K%ld> {[", i + 1);
+		fprintf(f, "key <K%ld> {[", i + BASE_KEYCODE);
 		print_keysym_name(wtype->keymap[i].xkb, f);
 		fprintf(f, "]};\n");
 	}
