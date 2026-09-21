@@ -59,6 +59,16 @@ struct keymap_entry {
 	wchar_t wchr;
 };
 
+// Linux evdev codes for the printable section of a PC keyboard. Chromium may
+// fall back to a key's physical meaning even when its keysym is printable.
+// Never put literal text on Escape, Backspace, Tab, Enter, or modifier codes.
+static const unsigned int text_keycodes[] = {
+	2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+	16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+	30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41,
+	43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 57,
+};
+
 
 struct wtype {
 	struct wl_display *display;
@@ -67,16 +77,16 @@ struct wtype {
 	struct zwp_virtual_keyboard_manager_v1 *manager;
 	struct zwp_virtual_keyboard_v1 *keyboard;
 
-	// Stores a keycode -> (xkb_keysym_t, wchar_t) mapping
-	// Beware that this is one-indexed (as zero-keycodes are sometimes
-	// not handled well by clients).
-	// That is, keymap[0] is a (xkb_keysym_t, wchar_t) pair which we can type by sending
-	// the keycode 1.
+	// Stores a one-indexed logical code -> (xkb_keysym_t, wchar_t) mapping.
+	// Explicit key commands use these codes directly. Literal-only invocations
+	// translate them to printable physical codes when uploading/typing a batch.
 	// Beware that the wchar_t does not have to be valid (and is 0 in such cases)
 	// This is since some keysyms need not have a unicode representation
 	// (such as the arrow keys and similar)
 	size_t keymap_len;
 	struct keymap_entry *keymap;
+	bool literal_only;
+	size_t keymap_offset;
 
 	uint32_t mod_status;
 	size_t command_count;
@@ -207,6 +217,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 	bool prefix_with_space = false;
 	bool use_stdin = false;
 	unsigned int delay_ms = 0;
+	wtype->literal_only = true;
 	for (int i = 1; i < argc; i++) {
 		struct wtype_command *cmd = &wtype->commands[wtype->command_count];
 		if (!raw_text && !strcmp("--", argv[i])) {
@@ -225,6 +236,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				fail("Missing argument to %s", argv[i]);
 			}
 			if (!strcmp("-M", argv[i])) {
+				wtype->literal_only = false;
 				// Press modifier
 				cmd->type = WTYPE_COMMAND_MOD_PRESS;
 				cmd->mod = name_to_mod(argv[i + 1]);
@@ -232,6 +244,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 					fail("Invalid modifier name '%s'", argv[i + 1]);
 				}
 			} else if (!strcmp("-m", argv[i])) {
+				wtype->literal_only = false;
 				// Release modifier
 				cmd->type = WTYPE_COMMAND_MOD_RELEASE;
 				cmd->mod = name_to_mod(argv[i + 1]);
@@ -252,6 +265,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 					fail("Invalid sleep time");
 				}
 			} else if (!strcmp("-k", argv[i])) {
+				wtype->literal_only = false;
 				//size_t k;
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
 				if (ks == XKB_KEY_NoSymbol) {
@@ -263,6 +277,7 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				cmd->key_codes[0] = get_key_code_by_xkb(wtype, ks);
 				cmd->delay_ms = delay_ms;
 			} else if (!strcmp("-P", argv[i]) || !strcmp("-p", argv[i])) {
+				wtype->literal_only = false;
 				// Press/release a key
 				xkb_keysym_t ks = xkb_keysym_from_name(argv[i + 1], XKB_KEYSYM_CASE_INSENSITIVE);
 				if (ks == XKB_KEY_NoSymbol) {
@@ -344,6 +359,18 @@ static void run_key(struct wtype *wtype, struct wtype_command *cmd)
 
 static void type_keycode(struct wtype *wtype, unsigned int key_code)
 {
+	if (wtype->literal_only) {
+		// Reuse printable physical codes in bounded keymaps. A map changes only
+		// between complete press/release pairs, never while a key is held.
+		size_t offset = ((key_code - 1) / ARRAY_SIZE(text_keycodes))
+			* ARRAY_SIZE(text_keycodes);
+		if (offset != wtype->keymap_offset) {
+			wtype->keymap_offset = offset;
+			upload_keymap(wtype);
+		}
+		key_code = text_keycodes[(key_code - 1) % ARRAY_SIZE(text_keycodes)];
+	}
+
 	zwp_virtual_keyboard_v1_key(
 			wtype->keyboard, 0, key_code, WL_KEYBOARD_KEY_STATE_PRESSED
 	);
@@ -451,6 +478,16 @@ static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
 
 static void upload_keymap(struct wtype *wtype)
 {
+	size_t first = wtype->literal_only ? wtype->keymap_offset : 0;
+	size_t end = wtype->keymap_len;
+	if (wtype->literal_only && end > first + ARRAY_SIZE(text_keycodes)) {
+		end = first + ARRAY_SIZE(text_keycodes);
+	}
+	// Explicit key/modifier commands keep their original mapping and lifetime.
+	size_t maximum = wtype->literal_only
+		? text_keycodes[ARRAY_SIZE(text_keycodes) - 1] + 8
+		: wtype->keymap_len + 9;
+
 	char filename[] = "/tmp/wtype-XXXXXX";
 	int fd = mkstemp(filename);
 	if (fd < 0) {
@@ -466,10 +503,11 @@ static void upload_keymap(struct wtype *wtype)
 		"xkb_keycodes \"(unnamed)\" {\n"
 		"minimum = 8;\n"
 		"maximum = %ld;\n",
-		wtype->keymap_len + 8 + 1
+		maximum
 	);
-	for (size_t i = 0; i < wtype->keymap_len; i++) {
-		fprintf(f, "<K%ld> = %ld;\n", i + 1, i + 8 + 1);
+	for (size_t i = first; i < end; i++) {
+		size_t code = wtype->literal_only ? text_keycodes[i - first] : i + 1;
+		fprintf(f, "<K%ld> = %ld;\n", i + 1, code + 8);
 	}
 	fprintf(f, "};\n");
 
@@ -478,7 +516,7 @@ static void upload_keymap(struct wtype *wtype)
 	fprintf(f, "xkb_compatibility \"(unnamed)\" { include \"complete\" };\n");
 
 	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
-	for (size_t i = 0; i < wtype->keymap_len; i++) {
+	for (size_t i = first; i < end; i++) {
 		fprintf(f, "key <K%ld> {[", i + 1);
 		print_keysym_name(wtype->keymap[i].xkb, f);
 		fprintf(f, "]};\n");
