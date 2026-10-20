@@ -1,4 +1,5 @@
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <locale.h>
 #include <stdbool.h>
@@ -13,6 +14,7 @@
 #include <xkbcommon/xkbcommon.h>
 
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
+#include "virtual-pointer-unstable-v1-client-protocol.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
 
@@ -24,7 +26,10 @@ enum wtype_command_type {
 	WTYPE_COMMAND_KEY_PRESS = 3,
 	WTYPE_COMMAND_KEY_RELEASE = 4,
 	WTYPE_COMMAND_SLEEP = 5,
-	WTYPE_COMMAND_TEXT_STDIN = 6
+	WTYPE_COMMAND_TEXT_STDIN = 6,
+	WTYPE_COMMAND_BUTTON_PRESS = 7,
+	WTYPE_COMMAND_BUTTON_RELEASE = 8,
+	WTYPE_COMMAND_BUTTON_CLICK = 9,
 };
 
 
@@ -40,6 +45,19 @@ enum wtype_mod {
 	WTYPE_MOD_ALTGR = 128
 };
 
+// These are taken from linux/input-event-codes.h
+enum wtype_btn {
+	WTYPE_BTN_NONE = 0,
+	WTYPE_BTN_LEFT = 0x110,
+	WTYPE_BTN_RIGHT = 0x111,
+	WTYPE_BTN_MIDDLE = 0x112,
+	WTYPE_BTN_SIDE = 0x113,
+	WTYPE_BTN_EXTRA = 0x114,
+	WTYPE_BTN_FORWARD = 0x115,
+	WTYPE_BTN_BACK = 0x116,
+	WTYPE_BTN_TASK = 0x117
+};
+
 
 struct wtype_command {
 	enum wtype_command_type type;
@@ -51,6 +69,7 @@ struct wtype_command {
 		};
 		unsigned int single_key_code;
 		enum wtype_mod mod;
+		uint32_t button;
 		unsigned int sleep_ms;
 	};
 };
@@ -78,6 +97,8 @@ struct wtype {
 	struct wl_seat *seat;
 	struct zwp_virtual_keyboard_manager_v1 *manager;
 	struct zwp_virtual_keyboard_v1 *keyboard;
+	struct zwlr_virtual_pointer_manager_v1 *pointer_manager;
+	struct zwlr_virtual_pointer_v1 *pointer;
 
 	// Stores a one-indexed logical code -> (xkb_keysym_t, wchar_t) mapping.
 	// Explicit key commands use these codes directly. Literal-only invocations
@@ -122,6 +143,10 @@ static void handle_wl_event(void *data, struct wl_registry *registry,
 		wtype->manager = wl_registry_bind(
 			registry, name, &zwp_virtual_keyboard_manager_v1_interface, 1
 		);
+	} else if (!strcmp(interface, zwlr_virtual_pointer_manager_v1_interface.name)) {
+		wtype->pointer_manager = wl_registry_bind(
+			registry, name, &zwlr_virtual_pointer_manager_v1_interface, 1
+		);
 	}
 }
 
@@ -151,6 +176,17 @@ static const struct { const char *name; enum wtype_mod mod; } mod_names[] = {
 	{"mod4", WTYPE_MOD_ALTGR},
 };
 
+static const struct { const char *name; uint32_t button; } button_names[] = {
+	{"left", WTYPE_BTN_LEFT},
+	{"right", WTYPE_BTN_RIGHT},
+	{"middle", WTYPE_BTN_MIDDLE},
+	{"forward", WTYPE_BTN_FORWARD},
+	{"back", WTYPE_BTN_BACK},
+	{"side", WTYPE_BTN_SIDE},
+	{"extra", WTYPE_BTN_EXTRA},
+	{"task" , WTYPE_BTN_TASK},
+};
+
 
 enum wtype_mod name_to_mod(const char *name)
 {
@@ -160,6 +196,20 @@ enum wtype_mod name_to_mod(const char *name)
 		}
 	}
 	return WTYPE_MOD_NONE;
+}
+
+uint32_t button_code_from_name(const char *name)
+{
+	for (unsigned int i = 0; i < ARRAY_SIZE(button_names); i++) {
+		if (!strcasecmp(button_names[i].name, name)) {
+			return button_names[i].button;
+		}
+	}
+	// If we got a digit, convert to a numeric button event
+	if (strlen(name) == 1 && isdigit(*name)) {
+		return 0x100 | ((uint32_t) (*name - '0'));
+	}
+	return WTYPE_BTN_NONE;
 }
 
 
@@ -291,6 +341,18 @@ static void parse_args(struct wtype *wtype, int argc, const char *argv[])
 				}
 				cmd->type = argv[i][1] == 'P' ? WTYPE_COMMAND_KEY_PRESS : WTYPE_COMMAND_KEY_RELEASE;
 				cmd->single_key_code = get_key_code_by_xkb(wtype, ks);
+			} else if (!strcmp("-c", argv[i])) {
+				cmd->type = WTYPE_COMMAND_BUTTON_CLICK;
+				cmd->button = button_code_from_name(argv[i + 1]);
+				if (cmd->button == WTYPE_BTN_NONE) {
+					fail("Unknown button '%s'", argv[i + 1]);
+				}
+			} else if (!strcmp("-B", argv[i]) || !strcmp("-b", argv[i])) {
+				cmd->type = argv[i][1] == 'B' ? WTYPE_COMMAND_BUTTON_PRESS : WTYPE_COMMAND_BUTTON_RELEASE;
+				cmd->button = button_code_from_name(argv[i + 1]);
+				if (cmd->button == WTYPE_BTN_NONE) {
+					fail("Unknown button '%s'", argv[i + 1]);
+				}
 			} else {
 				fail("Unknown parameter %s", argv[i]);
 			}
@@ -451,7 +513,29 @@ static void run_text_stdin(struct wtype *wtype, struct wtype_command *cmd)
 	free(cmd->key_codes);
 }
 
+static void run_button(struct wtype *wtype, struct wtype_command *cmd) {
+	zwlr_virtual_pointer_v1_button(
+		wtype->pointer, 0, cmd->single_key_code,
+		cmd->type == WTYPE_COMMAND_BUTTON_PRESS ?
+		WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
+	zwlr_virtual_pointer_v1_frame(wtype->pointer);
+	wl_display_roundtrip(wtype->display);
+}
+static void run_click(struct wtype *wtype, struct wtype_command *cmd) {
+	zwlr_virtual_pointer_v1_button(
+		wtype->pointer, 0, cmd->single_key_code,
+		WL_POINTER_BUTTON_STATE_PRESSED);
+	wl_display_roundtrip(wtype->display);
+	usleep(2000);
+	zwlr_virtual_pointer_v1_button(
+		wtype->pointer, 0, cmd->single_key_code,
+		WL_POINTER_BUTTON_STATE_RELEASED);
+	zwlr_virtual_pointer_v1_frame(wtype->pointer);
+	wl_display_roundtrip(wtype->display);
+	usleep(2000);
+}
 static void run_commands(struct wtype *wtype)
+
 {
 	void (*handlers[])(struct wtype *, struct wtype_command *) = {
 		[WTYPE_COMMAND_SLEEP] = run_sleep,
@@ -461,6 +545,9 @@ static void run_commands(struct wtype *wtype)
 		[WTYPE_COMMAND_KEY_RELEASE] = run_key,
 		[WTYPE_COMMAND_TEXT] = run_text,
 		[WTYPE_COMMAND_TEXT_STDIN] = run_text_stdin,
+		[WTYPE_COMMAND_BUTTON_PRESS] = run_button,
+		[WTYPE_COMMAND_BUTTON_RELEASE] = run_button,
+		[WTYPE_COMMAND_BUTTON_CLICK] = run_click,
 	};
 	for (unsigned int i = 0; i < wtype->command_count; i++) {
 		handlers[wtype->commands[i].type](wtype, &wtype->commands[i]);
@@ -574,6 +661,10 @@ int main(int argc, const char *argv[])
 	wtype.keyboard = zwp_virtual_keyboard_manager_v1_create_virtual_keyboard(
 		wtype.manager, wtype.seat
 	);
+	// TODO: make this optional
+	wtype.pointer = zwlr_virtual_pointer_manager_v1_create_virtual_pointer(
+		wtype.pointer_manager, wtype.seat
+	);
 
 	upload_keymap(&wtype);
 	run_commands(&wtype);
@@ -587,6 +678,8 @@ int main(int argc, const char *argv[])
 	free(wtype.keymap);
 	zwp_virtual_keyboard_v1_destroy(wtype.keyboard);
 	zwp_virtual_keyboard_manager_v1_destroy(wtype.manager);
+	zwlr_virtual_pointer_v1_destroy(wtype.pointer);
+	zwlr_virtual_pointer_manager_v1_destroy(wtype.pointer_manager);
 	wl_registry_destroy(wtype.registry);
 	wl_display_disconnect(wtype.display);
 }

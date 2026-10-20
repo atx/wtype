@@ -17,6 +17,7 @@ wayland_scanner_client = generator(
 
 client_protocols = [
 	['virtual-keyboard-unstable-v1.xml'],
+	['virtual-pointer-unstable-v1.xml'],
 ]
 client_protos_src = []
 client_protos_headers = []
