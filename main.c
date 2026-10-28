@@ -174,8 +174,21 @@ static unsigned int append_keymap_entry(struct wtype *wtype, wchar_t ch, xkb_key
 }
 
 
+// Reserve keymap slot 1 (routed to physical keycode 9 = Escape by the
+// compositor) as a placeholder: some apps (Chromium) special-case the
+// Escape keycode and drop the character that would otherwise be typed
+// there, so the first real character is placed at slot 2 instead.
+static void ensure_keymap_reserved(struct wtype *wtype)
+{
+	if (wtype->keymap_len == 0) {
+		append_keymap_entry(wtype, L'\0', XKB_KEY_NoSymbol);
+	}
+}
+
 unsigned int get_key_code_by_wchar(struct wtype *wtype, wchar_t ch)
 {
+	ensure_keymap_reserved(wtype);
+
 	const struct {
 		wchar_t from;
 		xkb_keysym_t to;
@@ -205,6 +218,8 @@ unsigned int get_key_code_by_wchar(struct wtype *wtype, wchar_t ch)
 
 unsigned int get_key_code_by_xkb(struct wtype *wtype, xkb_keysym_t xkb)
 {
+	ensure_keymap_reserved(wtype);
+
 	for (unsigned int i = 0; i < wtype->keymap_len; i++) {
 		if (wtype->keymap[i].xkb == xkb) {
 			return i + 1;
