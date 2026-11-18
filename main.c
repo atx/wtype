@@ -224,7 +224,11 @@ static void handle_keyboard_keymap(void *data, struct wl_keyboard *keyboard,
 	}
 	size_t length = 0;
 	while (length < size) {
-		ssize_t ret = read(fd, keymap_data + length, size - length);
+		// Use pread so we do not advance the shared file offset. The compositor
+		// may pass the same keymap fd to other clients after we are done with it.
+		ssize_t ret = pread(
+			fd, keymap_data + length, size - length, (off_t)length
+		);
 		if (ret <= 0) {
 			break;
 		}
