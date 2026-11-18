@@ -1,7 +1,10 @@
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <locale.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -76,8 +79,17 @@ struct wtype {
 	struct wl_display *display;
 	struct wl_registry *registry;
 	struct wl_seat *seat;
+	struct wl_keyboard *input_keyboard;
 	struct zwp_virtual_keyboard_manager_v1 *manager;
 	struct zwp_virtual_keyboard_v1 *keyboard;
+
+	// The seat's current keymap, when the compositor provides it. Uploading a
+	// copy of it (with our own keys added) keeps the user's layout intact.
+	char *base_keymap;
+	struct xkb_keymap *base_xkb_keymap;
+	xkb_keycode_t base_max_keycode;
+	xkb_layout_index_t base_num_layouts;
+	bool using_base_keymap;
 
 	// Stores a one-indexed logical code -> (xkb_keysym_t, wchar_t) mapping.
 	// Explicit key commands use these codes directly. Literal-only invocations
@@ -106,6 +118,188 @@ void fail(const char *format, ...)
 	exit(EXIT_FAILURE);
 }
 
+struct wtype_buffer {
+	char *data;
+	size_t len;
+	size_t capacity;
+};
+
+
+static void buffer_reserve(struct wtype_buffer *buffer, size_t extra)
+{
+	if (buffer->len + extra <= buffer->capacity) {
+		return;
+	}
+	size_t capacity = buffer->capacity ? buffer->capacity : 4096;
+	while (capacity < buffer->len + extra) {
+		capacity *= 2;
+	}
+	buffer->data = realloc(buffer->data, capacity);
+	if (buffer->data == NULL) {
+		fail("Out of memory while building the keymap");
+	}
+	buffer->capacity = capacity;
+}
+
+static void buffer_append_data(struct wtype_buffer *buffer, const char *data,
+							   size_t len)
+{
+	buffer_reserve(buffer, len);
+	memcpy(buffer->data + buffer->len, data, len);
+	buffer->len += len;
+}
+
+static void buffer_append(struct wtype_buffer *buffer, const char *string)
+{
+	buffer_append_data(buffer, string, strlen(string));
+}
+
+static void buffer_appendf(struct wtype_buffer *buffer, const char *format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	va_list args_copy;
+	va_copy(args_copy, args);
+	int needed = vsnprintf(NULL, 0, format, args);
+	va_end(args);
+	if (needed < 0) {
+		fail("Failed to format the keymap");
+	}
+	buffer_reserve(buffer, (size_t)needed + 1);
+	vsnprintf(buffer->data + buffer->len, (size_t)needed + 1, format, args_copy);
+	va_end(args_copy);
+	buffer->len += (size_t)needed;
+}
+
+
+static void set_base_keymap(struct wtype *wtype, const char *keymap_data)
+{
+	struct xkb_context *context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+	if (context == NULL) {
+		return;
+	}
+	struct xkb_keymap *keymap = xkb_keymap_new_from_string(
+		context, keymap_data, XKB_KEYMAP_FORMAT_TEXT_V1,
+		XKB_KEYMAP_COMPILE_NO_FLAGS
+	);
+	if (keymap == NULL) {
+		xkb_context_unref(context);
+		return;
+	}
+	char *keymap_string = xkb_keymap_get_as_string(
+		keymap, XKB_KEYMAP_FORMAT_TEXT_V1
+	);
+	if (keymap_string == NULL) {
+		xkb_keymap_unref(keymap);
+		xkb_context_unref(context);
+		return;
+	}
+
+	free(wtype->base_keymap);
+	if (wtype->base_xkb_keymap != NULL) {
+		xkb_keymap_unref(wtype->base_xkb_keymap);
+	}
+	wtype->base_keymap = keymap_string;
+	wtype->base_xkb_keymap = keymap;
+	wtype->base_max_keycode = xkb_keymap_max_keycode(keymap);
+	wtype->base_num_layouts = xkb_keymap_num_layouts(keymap);
+
+	xkb_context_unref(context);
+}
+
+
+static void handle_keyboard_keymap(void *data, struct wl_keyboard *keyboard,
+								   uint32_t format, int32_t fd, uint32_t size)
+{
+	struct wtype *wtype = data;
+	if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+		close(fd);
+		return;
+	}
+
+	char *keymap_data = malloc((size_t)size + 1);
+	if (keymap_data == NULL) {
+		close(fd);
+		return;
+	}
+	size_t length = 0;
+	while (length < size) {
+		ssize_t ret = read(fd, keymap_data + length, size - length);
+		if (ret <= 0) {
+			break;
+		}
+		length += (size_t)ret;
+	}
+	close(fd);
+	keymap_data[length] = '\0';
+
+	set_base_keymap(wtype, keymap_data);
+	free(keymap_data);
+}
+
+static void handle_keyboard_enter(void *data, struct wl_keyboard *keyboard,
+								  uint32_t serial, struct wl_surface *surface,
+								  struct wl_array *keys)
+{
+}
+
+static void handle_keyboard_leave(void *data, struct wl_keyboard *keyboard,
+								  uint32_t serial, struct wl_surface *surface)
+{
+}
+
+static void handle_keyboard_key(void *data, struct wl_keyboard *keyboard,
+								uint32_t serial, uint32_t time, uint32_t key,
+								uint32_t state)
+{
+}
+
+static void handle_keyboard_modifiers(void *data, struct wl_keyboard *keyboard,
+									  uint32_t serial, uint32_t mods_depressed,
+									  uint32_t mods_latched, uint32_t mods_locked,
+									  uint32_t group)
+{
+}
+
+static void handle_keyboard_repeat_info(void *data, struct wl_keyboard *keyboard,
+										int32_t rate, int32_t delay)
+{
+}
+
+static const struct wl_keyboard_listener keyboard_listener = {
+	.keymap = handle_keyboard_keymap,
+	.enter = handle_keyboard_enter,
+	.leave = handle_keyboard_leave,
+	.key = handle_keyboard_key,
+	.modifiers = handle_keyboard_modifiers,
+	.repeat_info = handle_keyboard_repeat_info,
+};
+
+
+static void handle_seat_capabilities(void *data, struct wl_seat *seat,
+									 uint32_t capabilities)
+{
+	struct wtype *wtype = data;
+	if (!(capabilities & WL_SEAT_CAPABILITY_KEYBOARD) ||
+		wtype->input_keyboard != NULL) {
+		return;
+	}
+	wtype->input_keyboard = wl_seat_get_keyboard(seat);
+	wl_keyboard_add_listener(
+		wtype->input_keyboard, &keyboard_listener, wtype
+	);
+}
+
+static void handle_seat_name(void *data, struct wl_seat *seat, const char *name)
+{
+}
+
+static const struct wl_seat_listener seat_listener = {
+	.capabilities = handle_seat_capabilities,
+	.name = handle_seat_name,
+};
+
+
 static void upload_keymap(struct wtype *wtype);
 
 
@@ -118,6 +312,7 @@ static void handle_wl_event(void *data, struct wl_registry *registry,
 		wtype->seat = wl_registry_bind(
 			registry, name, &wl_seat_interface, version <= 7 ? version : 7
 		);
+		wl_seat_add_listener(wtype->seat, &seat_listener, wtype);
 	} else if (!strcmp(interface, zwp_virtual_keyboard_manager_v1_interface.name)) {
 		wtype->manager = wl_registry_bind(
 			registry, name, &zwp_virtual_keyboard_manager_v1_interface, 1
@@ -353,10 +548,21 @@ static void run_mod(struct wtype *wtype, struct wtype_command *cmd)
 }
 
 
+static unsigned int explicit_key_code(struct wtype *wtype,
+									  unsigned int key_code)
+{
+	if (!wtype->using_base_keymap) {
+		return key_code;
+	}
+	// Custom keys are appended after the compositor's highest keycode. The
+	// virtual keyboard protocol uses evdev codes, which are XKB keycodes - 8.
+	return wtype->base_max_keycode + key_code - 8;
+}
+
 static void run_key(struct wtype *wtype, struct wtype_command *cmd)
 {
 	zwp_virtual_keyboard_v1_key(
-		wtype->keyboard, 0, cmd->single_key_code,
+		wtype->keyboard, 0, explicit_key_code(wtype, cmd->single_key_code),
 		cmd->type == WTYPE_COMMAND_KEY_PRESS ?
 			WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED
 	);
@@ -375,6 +581,8 @@ static void type_keycode(struct wtype *wtype, unsigned int key_code)
 			upload_keymap(wtype);
 		}
 		key_code = text_keycodes[(key_code - 1) % ARRAY_SIZE(text_keycodes)];
+	} else {
+		key_code = explicit_key_code(wtype, key_code);
 	}
 
 	zwp_virtual_keyboard_v1_key(
@@ -468,17 +676,219 @@ static void run_commands(struct wtype *wtype)
 }
 
 
-static void print_keysym_name(xkb_keysym_t keysym, FILE *f)
+static size_t find_section_end(const char *keymap, const char *section)
+{
+	const char *start = strstr(keymap, section);
+	if (start == NULL) {
+		return SIZE_MAX;
+	}
+	const char *open = strchr(start, '{');
+	if (open == NULL) {
+		return SIZE_MAX;
+	}
+
+	int depth = 0;
+	bool in_string = false;
+	for (const char *p = open; *p != '\0'; p++) {
+		if (*p == '"' && (p == open || p[-1] != '\\')) {
+			in_string = !in_string;
+		} else if (!in_string) {
+			if (*p == '{') {
+				depth++;
+			} else if (*p == '}') {
+				depth--;
+				if (depth == 0) {
+					return (size_t)(p - keymap);
+				}
+			}
+		}
+	}
+	return SIZE_MAX;
+}
+
+static bool find_number(const char *keymap, size_t section_end,
+						const char *name, size_t *start, size_t *end)
+{
+	const char *p = strstr(keymap, name);
+	if (p == NULL || (size_t)(p - keymap) >= section_end) {
+		return false;
+	}
+	p += strlen(name);
+	while (*p != '\0' && isspace((unsigned char)*p)) {
+		p++;
+	}
+	if (*p != '=') {
+		return false;
+	}
+	p++;
+	while (*p != '\0' && isspace((unsigned char)*p)) {
+		p++;
+	}
+	if (!isdigit((unsigned char)*p)) {
+		return false;
+	}
+	*start = (size_t)(p - keymap);
+	while (*p != '\0' && isdigit((unsigned char)*p)) {
+		p++;
+	}
+	*end = (size_t)(p - keymap);
+	return true;
+}
+
+static void append_keysym_name(struct wtype_buffer *buffer, xkb_keysym_t keysym)
 {
 	char sym_name[256];
 
 	int ret = xkb_keysym_get_name(keysym, sym_name, sizeof(sym_name));
 	if (ret <= 0) {
-		fail("Unable to get XKB symbol name for keysym %04x\n", keysym);
-		return;
+		fail("Unable to get XKB symbol name for keysym %04x", keysym);
+	}
+	buffer_append(buffer, sym_name);
+}
+
+static void custom_key_name(struct wtype *wtype, size_t index, char *name,
+							size_t name_size)
+{
+	static const char *prefixes[] = {"WType", "WType_", "WTypeX"};
+	for (size_t i = 0; i < ARRAY_SIZE(prefixes); i++) {
+		snprintf(name, name_size, "%s%zu", prefixes[i], index);
+		if (xkb_keymap_key_by_name(wtype->base_xkb_keymap, name) ==
+			XKB_KEYCODE_INVALID) {
+			return;
+		}
+	}
+	snprintf(name, name_size, "WType%zu_%ld", index, (long)getpid());
+}
+
+static void append_key_definition(struct wtype_buffer *buffer, const char *name,
+								  xkb_keysym_t keysym,
+								  xkb_layout_index_t layouts)
+{
+	buffer_appendf(buffer, "key <%s> { [", name);
+	for (xkb_layout_index_t i = 0; i < layouts; i++) {
+		if (i != 0) {
+			buffer_append(buffer, "], [");
+		}
+		append_keysym_name(buffer, keysym);
+	}
+	buffer_append(buffer, "] };\n");
+}
+
+static char *build_base_keymap(struct wtype *wtype, size_t first, size_t end,
+							   size_t *keymap_size)
+{
+	const char *base = wtype->base_keymap;
+	size_t base_len = strlen(base);
+	size_t keycodes_end = find_section_end(base, "xkb_keycodes");
+	size_t symbols_end = find_section_end(base, "xkb_symbols");
+	if (keycodes_end == SIZE_MAX || symbols_end == SIZE_MAX) {
+		return NULL;
 	}
 
-	fprintf(f, "%s", sym_name);
+	bool explicit_keys = !wtype->literal_only;
+	size_t maximum_start = 0;
+	size_t maximum_end = 0;
+	if (explicit_keys && !find_number(
+			base, keycodes_end, "maximum", &maximum_start, &maximum_end)) {
+		return NULL;
+	}
+
+	struct wtype_buffer buffer = {0};
+	size_t cursor = 0;
+	if (explicit_keys) {
+		buffer_append_data(&buffer, base + cursor, maximum_start - cursor);
+		buffer_appendf(
+			&buffer, "%u", (unsigned int)(wtype->base_max_keycode + end)
+		);
+		cursor = maximum_end;
+	}
+	buffer_append_data(&buffer, base + cursor, keycodes_end - cursor);
+
+	if (explicit_keys) {
+		for (size_t i = 0; i < end; i++) {
+			char name[64];
+			custom_key_name(wtype, i, name, sizeof(name));
+			buffer_appendf(
+				&buffer, "\t<%s> = %u;\n", name,
+				(unsigned int)(wtype->base_max_keycode + 1 + i)
+			);
+		}
+	}
+
+	cursor = keycodes_end;
+	buffer_append_data(&buffer, base + cursor, symbols_end - cursor);
+
+	xkb_layout_index_t layouts = wtype->base_num_layouts
+		? wtype->base_num_layouts : 1;
+	if (explicit_keys) {
+		for (size_t i = 0; i < end; i++) {
+			char name[64];
+			custom_key_name(wtype, i, name, sizeof(name));
+			append_key_definition(&buffer, name, wtype->keymap[i].xkb, layouts);
+		}
+	} else {
+		for (size_t i = first; i < end; i++) {
+			xkb_keycode_t keycode = text_keycodes[i - first] + 8;
+			const char *name = xkb_keymap_key_get_name(
+				wtype->base_xkb_keymap, keycode
+			);
+			if (name == NULL) {
+				free(buffer.data);
+				return NULL;
+			}
+			append_key_definition(
+				&buffer, name, wtype->keymap[i].xkb, layouts
+			);
+		}
+	}
+
+	cursor = symbols_end;
+	buffer_append_data(&buffer, base + cursor, base_len - cursor);
+	buffer_append_data(&buffer, "", 1);
+
+	*keymap_size = buffer.len;
+	return buffer.data;
+}
+
+static char *build_standalone_keymap(struct wtype *wtype, size_t first,
+									 size_t end, size_t *keymap_size)
+{
+	// Explicit key/modifier commands keep their original mapping and lifetime.
+	size_t maximum = wtype->literal_only
+		? text_keycodes[ARRAY_SIZE(text_keycodes) - 1] + 8
+		: wtype->keymap_len + 9;
+
+	struct wtype_buffer buffer = {0};
+	buffer_append(&buffer, "xkb_keymap {\n");
+	buffer_appendf(
+		&buffer,
+		"xkb_keycodes \"(unnamed)\" {\n"
+		"minimum = 8;\n"
+		"maximum = %zu;\n",
+		maximum
+	);
+	for (size_t i = first; i < end; i++) {
+		size_t code = wtype->literal_only ? text_keycodes[i - first] : i + 1;
+		buffer_appendf(&buffer, "<K%zu> = %zu;\n", i + 1, code + 8);
+	}
+	buffer_append(&buffer, "};\n");
+
+	// TODO: Is including "complete" here really a good idea?
+	buffer_append(&buffer, "xkb_types \"(unnamed)\" { include \"complete\" };\n");
+	buffer_append(&buffer, "xkb_compatibility \"(unnamed)\" { include \"complete\" };\n");
+
+	buffer_append(&buffer, "xkb_symbols \"(unnamed)\" {\n");
+	for (size_t i = first; i < end; i++) {
+		buffer_appendf(&buffer, "key <K%zu> {[", i + 1);
+		append_keysym_name(&buffer, wtype->keymap[i].xkb);
+		buffer_append(&buffer, "]};\n");
+	}
+	buffer_append(&buffer, "};\n");
+	buffer_append(&buffer, "};\n");
+	buffer_append_data(&buffer, "", 1);
+
+	*keymap_size = buffer.len;
+	return buffer.data;
 }
 
 
@@ -489,10 +899,19 @@ static void upload_keymap(struct wtype *wtype)
 	if (wtype->literal_only && end > first + ARRAY_SIZE(text_keycodes)) {
 		end = first + ARRAY_SIZE(text_keycodes);
 	}
-	// Explicit key/modifier commands keep their original mapping and lifetime.
-	size_t maximum = wtype->literal_only
-		? text_keycodes[ARRAY_SIZE(text_keycodes) - 1] + 8
-		: wtype->keymap_len + 9;
+
+	size_t keymap_size = 0;
+	char *keymap = NULL;
+	wtype->using_base_keymap = false;
+	if (wtype->base_keymap != NULL) {
+		keymap = build_base_keymap(wtype, first, end, &keymap_size);
+		if (keymap != NULL) {
+			wtype->using_base_keymap = true;
+		}
+	}
+	if (keymap == NULL) {
+		keymap = build_standalone_keymap(wtype, first, end, &keymap_size);
+	}
 
 	char filename[] = "/tmp/wtype-XXXXXX";
 	int fd = mkstemp(filename);
@@ -501,38 +920,14 @@ static void upload_keymap(struct wtype *wtype)
 	}
 	unlink(filename);
 	FILE *f = fdopen(fd, "w");
-
-	fprintf(f, "xkb_keymap {\n");
-
-	fprintf(
-		f,
-		"xkb_keycodes \"(unnamed)\" {\n"
-		"minimum = 8;\n"
-		"maximum = %ld;\n",
-		maximum
-	);
-	for (size_t i = first; i < end; i++) {
-		size_t code = wtype->literal_only ? text_keycodes[i - first] : i + 1;
-		fprintf(f, "<K%ld> = %ld;\n", i + 1, code + 8);
+	if (f == NULL) {
+		fail("Failed to open the temporary keymap file");
 	}
-	fprintf(f, "};\n");
 
-	// TODO: Is including "complete" here really a good idea?
-	fprintf(f, "xkb_types \"(unnamed)\" { include \"complete\" };\n");
-	fprintf(f, "xkb_compatibility \"(unnamed)\" { include \"complete\" };\n");
-
-	fprintf(f, "xkb_symbols \"(unnamed)\" {\n");
-	for (size_t i = first; i < end; i++) {
-		fprintf(f, "key <K%ld> {[", i + 1);
-		print_keysym_name(wtype->keymap[i].xkb, f);
-		fprintf(f, "]};\n");
+	if (fwrite(keymap, 1, keymap_size, f) != keymap_size) {
+		fail("Failed to write the temporary keymap file");
 	}
-	fprintf(f, "};\n");
-
-	fprintf(f, "};\n");
-	fputc('\0', f);
 	fflush(f);
-	size_t keymap_size = ftell(f);
 
 	zwp_virtual_keyboard_v1_keymap(
 		wtype->keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fileno(f), keymap_size
@@ -541,6 +936,7 @@ static void upload_keymap(struct wtype *wtype)
 	wl_display_roundtrip(wtype->display);
 
 	fclose(f);
+	free(keymap);
 }
 
 
@@ -564,6 +960,12 @@ int main(int argc, const char *argv[])
 	wl_display_dispatch(wtype.display);
 	wl_display_roundtrip(wtype.display);
 
+	if (wtype.input_keyboard != NULL && wtype.base_keymap == NULL) {
+		// The keyboard capability may have arrived during the roundtrip above,
+		// so give the compositor another chance to send its keymap.
+		wl_display_roundtrip(wtype.display);
+	}
+
 	if (wtype.manager == NULL) {
 		fail("Compositor does not support the virtual keyboard protocol");
 	}
@@ -585,6 +987,13 @@ int main(int argc, const char *argv[])
 	}
 	free(wtype.commands);
 	free(wtype.keymap);
+	if (wtype.input_keyboard != NULL) {
+		wl_keyboard_destroy(wtype.input_keyboard);
+	}
+	if (wtype.base_xkb_keymap != NULL) {
+		xkb_keymap_unref(wtype.base_xkb_keymap);
+	}
+	free(wtype.base_keymap);
 	zwp_virtual_keyboard_v1_destroy(wtype.keyboard);
 	zwp_virtual_keyboard_manager_v1_destroy(wtype.manager);
 	wl_registry_destroy(wtype.registry);
